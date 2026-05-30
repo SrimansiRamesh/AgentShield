@@ -124,36 +124,52 @@ async def run(args: argparse.Namespace) -> int:
     print(f"\nReport saved: {output_path}")
     print("\nSummary")
     print("-------")
-    print(f"  Company:        {report.company or 'Unknown'}")
-    print(f"  Product:        {report.product_name or report.tool_name}")
-    print(f"  Vendor URL:     {report.vendor_url or 'Not found'}")
-    print(f"  Security page:  {report.security_page_url or 'Not found'}")
-    print(f"  Trust center:   {report.trust_center_url or 'Not found'}")
-    print(f"  Privacy policy: {report.privacy_policy_url or 'Not found'}")
+    meta = report.vendor_metadata
+    print(f"  Company:        {meta.company or 'Unknown'}")
+    print(f"  Product:        {meta.product or report.tool_name}")
+    print(f"  Vendor URL:     {meta.url or 'Not found'}")
+    print(f"  Security page:  {meta.security_url or 'Not found'}")
+    print(f"  Trust center:   {meta.trust_center_url or 'Not found'}")
+    print(f"  Privacy policy: {meta.privacy_policy_url or 'Not found'}")
+    print(f"\n  Review level:   {report.review_level or 'Unknown'}")
+    print(f"  Confidence:     {report.confidence or 'Unknown'}")
+    if report.recommendation_summary:
+        print(f"\n  Recommendation: {report.recommendation_summary}")
 
-    print("\nSecurity signals:")
-    signals = report.security_signals.model_dump()
-    label_map = {
-        "soc2": "SOC 2",
-        "iso27001": "ISO 27001",
-        "sso": "SSO",
-        "mfa": "MFA / 2FA",
-        "rbac": "RBAC",
-        "audit_logs": "Audit Logs",
-        "encryption": "Encryption",
-        "vulnerability_disclosure": "Vuln. Disclosure",
-        "bug_bounty": "Bug Bounty",
-    }
-    for key, label in label_map.items():
-        icon = _signal_icon(signals.get(key))
-        print(f"  {icon}  {label}")
+    print("\nCategory scores:")
+    cats = report.categorized_signals
+    for label, cat in [
+        ("Compliance & Governance", cats.compliance_and_governance),
+        ("Identity & Access     ", cats.identity_and_access),
+        ("AI Data Privacy       ", cats.ai_data_privacy),
+    ]:
+        bar = "#" * (cat.score_percentage // 10) + "." * (10 - cat.score_percentage // 10)
+        print(f"  {label}  [{bar}] {cat.score_percentage}%")
+        if cat.positive:
+            print(f"    + {', '.join(cat.positive)}")
+        if cat.missing:
+            print(f"    - {', '.join(cat.missing)}")
 
-    print(f"\nPublic incidents found: {len(report.public_incidents)}")
-    for inc in report.public_incidents:
-        date_str = f" ({inc.date})" if inc.date else ""
-        sev_str = f" [{inc.severity}]" if inc.severity else ""
-        print(f"  * {inc.title}{date_str}{sev_str}")
-        print(f"    {inc.source_url}")
+    ai = report.ai_agent_signals
+    print("\nAI agent signals:")
+    print(f"  Zero data retention:   {_signal_icon(ai.zero_data_retention)}")
+    print(f"  User in the loop:      {_signal_icon(ai.user_in_the_loop)}")
+    print(f"  Execution environment: {ai.execution_environment or '?'}")
+    if ai.prompt_logging_period_days is not None:
+        print(f"  Prompt log retention:  {ai.prompt_logging_period_days} days")
+
+    print(f"\nThreat timeline: {len(report.threat_timeline)} event(s)")
+    for evt in report.threat_timeline:
+        date_str = f" ({evt.date})" if evt.date else ""
+        sev_str = f" [{evt.severity}]" if evt.severity else ""
+        cve_str = f" {evt.cve_id}" if evt.cve_id else ""
+        print(f"  * {evt.title}{date_str}{sev_str}{cve_str}")
+        print(f"    {evt.source_url}")
+
+    if report.actionable_hardening_steps:
+        print("\nHardening steps:")
+        for step in report.actionable_hardening_steps:
+            print(f"  > {step.title}")
 
     print(f"\nSources consulted: {len(report.sources)}")
     for src in report.sources[:10]:

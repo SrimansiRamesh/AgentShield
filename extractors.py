@@ -4,7 +4,6 @@ import re
 import logging
 from typing import Optional
 
-from models import SecuritySignals
 
 logger = logging.getLogger(__name__)
 
@@ -69,17 +68,16 @@ _INCIDENT_KEYWORDS = [
 ]
 
 
-def extract_security_signals(text: str) -> SecuritySignals:
+def extract_security_signals(text: str) -> dict[str, Optional[bool]]:
     signals: dict[str, Optional[bool]] = {}
     for key, pattern in _SIGNAL_PATTERNS.items():
         found = bool(re.search(pattern, text, re.IGNORECASE))
         signals[key] = True if found else None
-    result = SecuritySignals(**signals)
     logger.debug(
         "Signals found: %s",
         [k for k, v in signals.items() if v is True],
     )
-    return result
+    return signals
 
 
 def looks_like_incident(text: str) -> bool:

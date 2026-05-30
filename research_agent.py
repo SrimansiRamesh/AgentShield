@@ -11,19 +11,31 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 from extractors import deduplicate_sources
-from models import PublicIncident, SecuritySignals, ToolSecurityReport
+from models import (
+    AIAgentSignals,
+    CategorizedSignals,
+    CategoryScore,
+    HardeningStep,
+    RiskOwnerRouting,
+    ThreatEvent,
+    ToolSecurityReport,
+    VendorMetadata,
+)
 
 logger = logging.getLogger(__name__)
 
 # Bright Data MCP server package
 _BD_MCP_PACKAGE = "@brightdata/mcp"
 
-SYSTEM_PROMPT = """\
-You are AgentShield, a professional security research assistant specializing in AI developer tools.
+SYSTEM_PROMPT = """You are AgentShield, a professional security research assistant and cybersecurity architect 
+specializing in AI developer tools.
 
-Your job is to research the security posture of a given tool by gathering publicly available information.
+Your job is to research the security posture of a given AI tool by gathering publicly available 
+information and producing a structured, actionable report optimized for enterprise due diligence.
 
-Research strategy (follow this order):
+---
+
+RESEARCH STRATEGY (follow this order):
 1. Search: "{tool_name} official website"
 2. Search: "{tool_name} security"
 3. Scrape the vendor homepage to find links to: security page, trust center, privacy policy
@@ -31,8 +43,14 @@ Research strategy (follow this order):
 5. Search: "{tool_name} SOC2 compliance"
 6. Search: "{tool_name} security incident breach CVE vulnerability"
 7. Scrape any news or advisory pages that look relevant
+8. Search: "{tool_name} data training privacy policy"
+9. Search: "{tool_name} data retention prompt logging policy"
 
-Security signals to detect (look for explicit mentions):
+---
+
+SIGNALS TO DETECT
+
+Standard security signals (explicit mentions only):
 - SOC 2 (Type I or II)
 - ISO 27001
 - SSO (SAML, OAuth, OIDC)
@@ -43,45 +61,160 @@ Security signals to detect (look for explicit mentions):
 - Vulnerability disclosure program / responsible disclosure
 - Bug bounty program (HackerOne, Bugcrowd, etc.)
 
-Rules:
-- Only set a signal to true if you found explicit evidence in the scraped content.
-- Set to false only if the source explicitly says the feature is absent.
-- Use null for anything you could not confirm either way.
-- Collect all URLs you scrape or find as sources.
+AI/Agent-specific signals (explicit mentions only):
+- zero_data_retention: Does the vendor commit to not training on user data, or offer an opt-out?
+- prompt_logging_period: How many days are inputs/outputs retained? (integer or null)
+- execution_environment: Is code/actions executed locally, in a cloud-isolated environment, or unknown?
+- user_in_the_loop: Does the tool require manual approval before terminal or destructive actions?
 
-When you have gathered sufficient information, output ONLY a JSON object — no explanation, no markdown fences, just the raw JSON:
+Signal rules:
+- Only set a signal to true if you found explicit evidence in scraped content
+- Set to false only if a source explicitly states the feature is absent
+- Use null for anything you could not confirm either way
+- NEVER infer a signal from generic phrases like "enterprise-grade security" — those are null, not true
+
+---
+
+INCIDENT RULES:
+- Prioritize incidents from the last 24 months
+- For each incident extract: CVE ID if present, whether a patch exists, affected versions if mentioned
+- Only include incidents with a verifiable source URL
+- Assign ui_badge_color as: critical → "red", high → "red", medium → "orange", low → "yellow"
+
+---
+
+REVIEW LEVEL RULES (heuristic-driven, no numerical scoring):
+Assign "High Review Required" if ANY of the following:
+- zero_data_retention is false or null
+- 2 or more high/critical CVEs found
+- execution_environment is "cloud_isolated" or "unknown" with no user_in_the_loop
+
+Assign "Medium Review Required" if ANY of the following:
+- SOC2 is null or false
+- bug_bounty is false or null
+- 1 high/critical CVE found
+- prompt_logging_period is unknown or greater than 30 days
+
+Assign "Low Review Required" only if:
+- SOC2 is true, zero_data_retention is true, no high/critical CVEs, and MFA is true
+
+---
+
+CATEGORIZATION RULES:
+
+compliance_and_governance covers: soc2, iso27001, encryption, vulnerability_disclosure, bug_bounty
+identity_and_access covers: sso, mfa, rbac, audit_logs
+ai_data_privacy covers: zero_data_retention, prompt_logging_period, execution_environment, user_in_the_loop
+
+For each category:
+- positive: list of signals confirmed true
+- missing: list of signals that are false or null
+- score_percentage: (confirmed true signals / total signals in category) × 100, rounded to nearest 5
+
+---
+
+HARDENING STEPS RULES:
+Generate 3-5 actionable hardening steps based on missing signals and known incidents.
+Each step must be specific to this vendor — not generic advice.
+Format as a title (what to do) and description (how to do it in this vendor's platform).
+
+---
+
+OUTPUT FORMAT:
+When you have gathered sufficient information, output ONLY a raw JSON object.
+No explanation, no markdown fences, no preamble.
 
 {
-  "tool_name": "string",
-  "company": "string or null",
-  "product_name": "string or null",
-  "vendor_url": "string or null",
-  "security_page_url": "string or null",
-  "trust_center_url": "string or null",
-  "privacy_policy_url": "string or null",
-  "security_signals": {
-    "soc2": true | false | null,
-    "iso27001": true | false | null,
-    "sso": true | false | null,
-    "mfa": true | false | null,
-    "rbac": true | false | null,
-    "audit_logs": true | false | null,
-    "encryption": true | false | null,
-    "vulnerability_disclosure": true | false | null,
-    "bug_bounty": true | false | null
+  "vendor_metadata": {
+    "company": "string or null",
+    "product": "string or null",
+    "url": "string or null",
+    "security_url": "string or null",
+    "trust_center_url": "string or null",
+    "privacy_policy_url": "string or null"
   },
-  "public_incidents": [
+  "review_level": "Low Review Required" | "Medium Review Required" | "High Review Required",
+  "recommendation_summary": "string",
+  "confidence": "high" | "medium" | "low",
+  "confidence_reason": "string",
+  "categorized_signals": {
+    "compliance_and_governance": {
+      "score_percentage": 0-100,
+      "positive": ["string", ...],
+      "missing": ["string", ...]
+    },
+    "identity_and_access": {
+      "score_percentage": 0-100,
+      "positive": ["string", ...],
+      "missing": ["string", ...]
+    },
+    "ai_data_privacy": {
+      "score_percentage": 0-100,
+      "positive": ["string", ...],
+      "missing": ["string", ...]
+    }
+  },
+  "ai_agent_signals": {
+    "zero_data_retention": true | false | null,
+    "prompt_logging_period_days": integer | null,
+    "execution_environment": "local" | "cloud_isolated" | "unknown",
+    "user_in_the_loop": true | false | null
+  },
+  "threat_timeline": [
     {
-      "date": "string or null",
+      "id": "string or null",
       "title": "string",
+      "date": "YYYY-MM-DD or null",
+      "severity": "low" | "medium" | "high" | "critical",
       "description": "string",
-      "severity": "low | medium | high | critical | null",
-      "source_url": "string"
+      "cve_id": "string or null",
+      "patched": true | false | null,
+      "source_url": "string",
+      "ui_badge_color": "red" | "orange" | "yellow"
     }
   ],
+  "use_case_fit": {
+    "storing_pii": "safe" | "caution" | "avoid",
+    "internal_dev_tooling": "safe" | "caution" | "avoid",
+    "regulated_industries": "safe" | "caution" | "avoid",
+    "agentic_autonomous_execution": "safe" | "caution" | "avoid"
+  },
+  "use_case_reasoning": {
+    "storing_pii": "string",
+    "internal_dev_tooling": "string",
+    "regulated_industries": "string",
+    "agentic_autonomous_execution": "string"
+  },
+  "actionable_hardening_steps": [
+    {
+      "title": "string",
+      "description": "string"
+    }
+  ],
+  "incident_velocity": "string or null",
+  "risk_owner_routing": {
+    "security_team": "string or null",
+    "legal": "string or null",
+    "procurement": "string or null"
+  },
   "sources": ["url1", "url2", ...]
 }
+
+
 """
+
+
+def _salvage_truncated_json(text: str) -> dict | None:
+    """Try progressively shorter prefixes until one parses as valid JSON."""
+    # Walk back from the end looking for a closing brace that completes the object
+    for i in range(len(text) - 1, 0, -1):
+        if text[i] == "}":
+            candidate = text[: i + 1]
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+    return None
 
 
 def _to_anthropic_tool(tool: Any) -> dict[str, Any]:
@@ -162,7 +295,7 @@ class ResearchAgent:
             try:
                 response = self.client.messages.create(
                     model=self.model,
-                    max_tokens=4096,
+                    max_tokens=16384,
                     system=system,
                     tools=tools,
                     messages=messages,
@@ -206,6 +339,20 @@ class ResearchAgent:
 
             if tool_results:
                 messages.append({"role": "user", "content": tool_results})
+            else:
+                # No tool calls and stop_reason != end_turn.
+                # Try to parse any text block as the final report first.
+                for block in response.content:
+                    if hasattr(block, "text") and block.text.strip():
+                        report = self._parse_report(block.text, tool_name, scraped_urls)
+                        if report:
+                            logger.info("Parsed report from non-end_turn response")
+                            return report
+                # Conversation must end with a user message or the API rejects it.
+                messages.append({
+                    "role": "user",
+                    "content": "Please output the final JSON security report based on your research so far.",
+                })
 
         logger.warning("Max iterations reached; returning partial report")
         return ToolSecurityReport(
@@ -259,7 +406,6 @@ class ResearchAgent:
         tool_name: str,
         scraped_urls: list[str],
     ) -> ToolSecurityReport | None:
-        # Find the outermost JSON object in the response
         start = text.find("{")
         end = text.rfind("}") + 1
         if start == -1 or end <= start:
@@ -270,35 +416,73 @@ class ResearchAgent:
             data = json.loads(text[start:end])
         except json.JSONDecodeError as exc:
             logger.error("JSON parse error: %s", exc)
-            return None
+            # Response was likely truncated - walk back to the last valid closing brace
+            data = _salvage_truncated_json(text[start:end])
+            if data is None:
+                return None
+            logger.warning("Parsed salvaged (truncated) JSON - report may be partial")
 
         try:
-            all_sources = deduplicate_sources(
-                data.get("sources", []) + scraped_urls
-            )
+            all_sources = deduplicate_sources(data.get("sources", []) + scraped_urls)
 
-            signals_raw = data.get("security_signals", {})
-            signals = SecuritySignals(**{
-                k: v for k, v in signals_raw.items()
-                if k in SecuritySignals.model_fields
+            meta_raw = data.get("vendor_metadata", {})
+            vendor_metadata = VendorMetadata(**{
+                k: v for k, v in meta_raw.items()
+                if k in VendorMetadata.model_fields
             })
 
-            incidents = [
-                PublicIncident(**inc)
-                for inc in data.get("public_incidents", [])
-                if isinstance(inc, dict) and "title" in inc
+            ai_raw = data.get("ai_agent_signals", {})
+            ai_signals = AIAgentSignals(**{
+                k: v for k, v in ai_raw.items()
+                if k in AIAgentSignals.model_fields
+            })
+
+            cat_raw = data.get("categorized_signals", {})
+            categorized = CategorizedSignals(
+                compliance_and_governance=CategoryScore(
+                    **cat_raw.get("compliance_and_governance", {})
+                ),
+                identity_and_access=CategoryScore(
+                    **cat_raw.get("identity_and_access", {})
+                ),
+                ai_data_privacy=CategoryScore(
+                    **cat_raw.get("ai_data_privacy", {})
+                ),
+            )
+
+            threat_timeline = [
+                ThreatEvent(**e)
+                for e in data.get("threat_timeline", [])
+                if isinstance(e, dict) and "title" in e
             ]
 
+            hardening = [
+                HardeningStep(**s)
+                for s in data.get("actionable_hardening_steps", [])
+                if isinstance(s, dict) and "title" in s
+            ]
+
+            routing_raw = data.get("risk_owner_routing", {})
+            routing = RiskOwnerRouting(**{
+                k: v for k, v in routing_raw.items()
+                if k in RiskOwnerRouting.model_fields
+            })
+
             return ToolSecurityReport(
-                tool_name=data.get("tool_name", tool_name),
-                company=data.get("company"),
-                product_name=data.get("product_name"),
-                vendor_url=data.get("vendor_url"),
-                security_page_url=data.get("security_page_url"),
-                trust_center_url=data.get("trust_center_url"),
-                privacy_policy_url=data.get("privacy_policy_url"),
-                security_signals=signals,
-                public_incidents=incidents,
+                tool_name=tool_name,
+                vendor_metadata=vendor_metadata,
+                review_level=data.get("review_level"),
+                recommendation_summary=data.get("recommendation_summary"),
+                confidence=data.get("confidence"),
+                confidence_reason=data.get("confidence_reason"),
+                categorized_signals=categorized,
+                ai_agent_signals=ai_signals,
+                threat_timeline=threat_timeline,
+                use_case_fit=data.get("use_case_fit", {}),
+                use_case_reasoning=data.get("use_case_reasoning", {}),
+                actionable_hardening_steps=hardening,
+                incident_velocity=data.get("incident_velocity"),
+                risk_owner_routing=routing,
                 sources=all_sources,
             )
 
