@@ -2,23 +2,31 @@
 
 **AI Tool Security Assessment Platform**
 
-AgentShield researches the public security posture of any AI developer tool — Cursor, CrewAI, LangGraph, GitHub Copilot, and more — and renders an executive-grade security assessment dashboard in your browser.
+Built at the **[Web Data UNLOCKED Hackathon](https://lablab.ai/ai-hackathons/brightdata-ai-agents-web-data-hackathon)** hosted by [lablab.ai](https://lablab.ai) at the Bright Data office in San Francisco.
 
-Enter a tool name. The agent searches vendor websites, security pages, CVE databases, and public incident records. You get a structured risk report in 3–6 minutes.
+The challenge: build something meaningful using Bright Data's web data infrastructure. We built a security research agent that uses Bright Data's MCP tools to scrape and search the public web, then renders the findings as an executive-grade security dashboard.
+
+---
+
+## The Problem
+
+Security and procurement teams evaluating AI developer tools — Cursor, CrewAI, LangGraph, GitHub Copilot — have no fast, standardized way to assess their security posture before deployment. Manually reviewing vendor security pages, trust centers, CVE databases, and incident history takes hours and requires knowing where to look.
+
+AgentShield automates that research in 3–6 minutes using a live web research agent.
 
 ---
 
 ## What It Does
 
-Most teams adopting AI tools have no standardized way to evaluate their security posture before deployment. AgentShield automates that due diligence using live web research and an LLM agent, then presents the findings as an executive dashboard built for security leaders.
+Enter any AI tool name. AgentShield launches a Claude Opus agent equipped with Bright Data MCP tools to search and scrape public sources in real time. When research is complete, a structured security assessment dashboard renders automatically in the browser.
 
 **The agent collects:**
-- Vendor metadata and security/trust center pages
+- Vendor website, security page, trust center, and privacy policy
 - Compliance certifications: SOC 2, ISO 27001
 - Access controls: SSO, MFA, RBAC, audit logs
 - Encryption posture (at rest, in transit)
-- Vulnerability disclosure and bug bounty programs
-- AI-specific signals: data retention policy, prompt logging, execution environment, user-in-the-loop controls
+- Vulnerability disclosure program and bug bounty program
+- AI-specific signals: data retention policy, prompt logging period, execution environment, user-in-the-loop controls
 - Public CVEs, security incidents, and breach history
 
 **The dashboard shows:**
@@ -29,8 +37,21 @@ Most teams adopting AI tools have no standardized way to evaluate their security
 - Agent risk radar across 5 threat dimensions
 - Interactive threat timeline with CVE details
 - Deployment suitability by use case (PII, regulated industries, agentic execution)
-- Actionable hardening steps
+- Actionable hardening steps with priority tiers
+- Risk owner routing (security team, legal, procurement)
 - Full evidence and source list
+
+---
+
+## How Bright Data Powers It
+
+Bright Data's MCP server provides the agent with two critical capabilities that make this possible:
+
+**Web search** — The agent searches for the vendor's official website, security pages, CVE disclosures, and public incident reports without hitting rate limits or bot detection.
+
+**Page scraping** — The agent scrapes full page content from security pages, trust centers, privacy policies, and news articles. Many of these pages have anti-scraping protections that Bright Data bypasses transparently.
+
+Without Bright Data, the agent would be limited to whatever the LLM already knows from training data — which is both stale and incomplete. With it, every report reflects the current state of the vendor's public security posture.
 
 ---
 
@@ -67,12 +88,12 @@ agentshield/
 ├── app.py                        # Streamlit entry point — all three views
 ├── main.py                       # CLI alternative: python main.py <tool>
 │
-├── research_agent.py             # Agentic research loop (Claude + MCP)
+├── research_agent.py             # Agentic research loop (Claude + Bright Data MCP)
 ├── models.py                     # Pydantic schemas for the JSON report
 ├── extractors.py                 # Regex-based security signal detection
 │
 ├── components/
-│   ├── executive_summary.py      # KPI cards + recommendation + routing
+│   ├── executive_summary.py      # KPI cards + recommendation + risk routing
 │   ├── posture_overview.py       # 5-domain security posture grid
 │   ├── top_risks.py              # Auto-derived top 3 risk cards
 │   ├── signal_matrix.py          # 11-signal status matrix
@@ -89,7 +110,7 @@ agentshield/
 │   └── text.py                   # Paragraph-to-bullets HTML helper
 │
 ├── styles/
-│   └── theme.py                  # Dark theme CSS + color constants
+│   └── theme.py                  # Dark SOC aesthetic CSS + color constants
 │
 ├── Dockerfile                    # Node.js 20 + Python 3 for deployment
 ├── requirements.txt              # Full dependencies (agent + dashboard)
@@ -119,11 +140,11 @@ pip install -r requirements.txt
 
 ```bash
 cp .env.example .env
-# Edit .env and fill in your keys
+# Edit .env with your keys
 export $(cat .env | xargs)
 ```
 
-Or set directly:
+Or export directly:
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
@@ -140,7 +161,7 @@ Open `http://localhost:8501`, type any AI tool name, and click **Analyze**.
 
 ### 4. CLI alternative
 
-If you want to generate a JSON report without the web UI:
+Generate a JSON report without the web UI:
 
 ```bash
 python main.py Cursor
@@ -148,13 +169,11 @@ python main.py CrewAI --output crewai_report.json
 python main.py LangGraph --verbose
 ```
 
-Then load the resulting JSON file via the dashboard's upload button.
+Load the resulting JSON file via the dashboard's upload button.
 
 ---
 
 ## Report Schema
-
-The agent produces a structured JSON report:
 
 ```json
 {
@@ -170,6 +189,7 @@ The agent produces a structured JSON report:
   "review_level": "High Review Required",
   "recommendation_summary": "...",
   "confidence": "high",
+  "confidence_reason": "...",
   "categorized_signals": {
     "compliance_and_governance": {
       "score_percentage": 60,
@@ -220,19 +240,10 @@ The agent produces a structured JSON report:
 Railway supports the Dockerfile natively and provides a free tier.
 
 1. Go to [railway.app](https://railway.app) and create a new project
-2. Connect your GitHub repo (`SrimansiRamesh/AgentShield`)
+2. Connect your GitHub repo
 3. Railway detects the Dockerfile automatically
-4. Add environment variables in the Railway dashboard:
-   - `ANTHROPIC_API_KEY`
-   - `BRIGHTDATA_API_TOKEN`
-5. Deploy — you get a public URL in ~3 minutes
-
-### Render
-
-1. New Web Service → connect GitHub repo
-2. Runtime: **Docker**
-3. Add the two environment variables
-4. Deploy
+4. Add environment variables: `ANTHROPIC_API_KEY` and `BRIGHTDATA_API_TOKEN`
+5. Deploy — public URL in ~3 minutes
 
 ### Local Docker
 
@@ -244,15 +255,13 @@ docker run -p 8501:8501 \
   agentshield
 ```
 
-Open `http://localhost:8501`.
-
 ### Streamlit Community Cloud (dashboard only)
 
-Streamlit Cloud can host the dashboard in upload-your-own-JSON mode (no live research, since Node.js is not available).
+Hosts the dashboard in upload-your-own-JSON mode. Live research requires Node.js which Streamlit Cloud does not support.
 
 1. Go to [share.streamlit.io](https://share.streamlit.io)
-2. Connect the GitHub repo, set main file to `app.py`
-3. Under Advanced Settings, set requirements file to `requirements_dashboard.txt`
+2. Connect the repo, set main file to `app.py`
+3. Set requirements file to `requirements_dashboard.txt` under Advanced Settings
 4. Add secrets: `ANTHROPIC_API_KEY` and `BRIGHTDATA_API_TOKEN`
 
 ---
@@ -308,17 +317,12 @@ Scores are heuristic-derived from public signals and are not a substitute for a 
 ## Limitations
 
 - All data comes from publicly available sources only
-- Absence of evidence is not evidence of absence — a missing signal means the vendor has not publicly disclosed it, not necessarily that the control does not exist
+- Absence of evidence is not evidence of absence — a missing signal means the vendor has not publicly disclosed it, not that the control does not exist
 - Report quality is bounded by how much security information the vendor publishes
-- CVE and incident data is limited to what appears in public search results and news
-- Not a replacement for a formal vendor security assessment, penetration test, or SOC 2 audit review
+- Not a replacement for a formal vendor security assessment or SOC 2 audit review
 
 ---
 
-## Contributing
+## Team
 
-Pull requests are welcome. For significant changes, open an issue first to discuss the approach.
-
----
-
-*Built at the Anthropic Safety Fellows hackathon, May 2026.*
+Built at the [Web Data UNLOCKED Hackathon](https://lablab.ai/ai-hackathons/brightdata-ai-agents-web-data-hackathon) at the Bright Data office, San Francisco, May 2026.
